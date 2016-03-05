@@ -76,13 +76,28 @@ for(b in 1:B){
 	}
 }
 
-est = sapply(1:K, function(i){ return( round(c(mean(beta.hat[,i]), sqrt(var(beta.hat[,i])) ), digits=8) ) })
-par(mfrow=c(1,3))
-plot(density(beta.hat[,1]), main="Coefficient for V")
-plot(density(beta.hat[,2]), main="Coefficient for V^2")
-plot(density(beta.hat[,3]), main="Coefficient for V^3")
+est = sapply(
+	1:K, 
+	function(i){ 
+		return(
+			round(c(mean(beta.hat[,i]), sqrt(var(beta.hat[,i])) ), digits=8)) 
+	}
+)
 
-round(est, digits=6)
+png(filename="hist.png", height=400, width=400)
+hist(
+	beta.hat[ , 1], 
+	main="",
+	col="gray",
+	xlab="",
+	breaks=20,
+	border="white",
+	ylab="",
+	family="serif"
+)
+dev.off()
+
+
 detach(data)
 
 

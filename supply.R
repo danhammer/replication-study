@@ -11,7 +11,7 @@
 
 library(MASS)
 library(splines)
-library(odesolve)
+library(deSolve)
 library(lokern)
 library(xtable)
 library(stargazer)
@@ -88,7 +88,6 @@ plot(
 abline(res, col=rgb(0, 0, 1, alpha=0.5))
 dev.off()
 
-
 png(filename="density.png", height=350, width=600)
 par(mfrow=c(1,2))
 plot(
@@ -111,7 +110,6 @@ plot(
 )
 dev.off()
 
-# v.core <- v[v < 65.9924 & v > 0.9282]
 
 ############################
 ## OLS REGRESSION RESULTS ##
@@ -128,70 +126,55 @@ stargazer(
 	omit.stat=c("LL","ser","f")
 )
 
-detach(residential)
-
-
-
-goodv = (((v.full < 65.9924)*(v > 0.9282)) == 1)
-v = v.full[goodv]
-pland = pland.full[goodv]
-lotarea = lotarea[goodv]
-muni = muni[goodv]
-
-N = length(v)
-logpland = log(pland)
-logv = log(v)
-v2 = v^2
-v3 = v^3
-v4 = v^4
-
-v.sd = sqrt(var(v))
-logv.sd = sqrt(var(logv))
-
-
-plot(logv, logpland, main="Value per Unit Land vs. Land Value per Unit Land\nBaltimore City Residential Properties", 
-			xlab="log(v)", ylab="log(pland)") #,xlim=c(-2,5), ylim=c(-3,3.5))
-
-#######################################################
-### Estimate the regressions
-#######################################################
-
-### Basic regressions
-
-lm.loglin = lm(logpland ~ logv)
-lm.lin = lm(pland ~ v - 1)
-lm.quad = lm(pland ~ v + v2 - 1)
-lm.cub = lm(pland ~ v + v2 + v3 - 1)
-lm.quart = lm(pland ~ v + v2 + v3 + v4 - 1)
-
 ### Non-parametric estimation of r(v)
 
-gkern.deriv = glkerns(v, pland, deriv=1,n.out=300, hetero=TRUE,bandwidth=v.sd*1.1)
-gkern = glkerns(v, pland, deriv=0,n.out=500, hetero=TRUE,bandwidth=v.sd*1.1)
-gkern.interp = interpSpline(gkern$x.out,gkern$est,na.action=na.omit,bSpline=TRUE)
+gkern.deriv = glkerns(
+	v, pland, 
+	deriv=1,
+	n.out=300, 
+	hetero=TRUE,
+	bandwidth=sd(v)*1.1
+)
 
-gkern.log = glkerns(logv, logpland, deriv=0,n.out=300, hetero=TRUE)
-gkern.log.interp = interpSpline(gkern.log$x.out,gkern.log$est,na.action=na.omit,bSpline=TRUE)
-gkern.log.fitted = predict(ks.log.interp, logv)
+gkern = glkerns(
+	v, pland, 
+	deriv=0,
+	n.out=500, 
+	hetero=TRUE,
+	bandwidth=sd(v)*1.1
+)
 
-par(mfrow=c(1,2))
-plot(gkern.deriv$x.out,gkern.deriv$est, type="l")
-plot(gkern.log$x.out,gkern.log$est, type="l", col="red")
-plot(lkern$x.out,lkern$est, type="l")
+gkern.interp = interpSpline(
+	gkern$x.out, gkern$est,
+	na.action=na.omit,
+	bSpline=TRUE
+)
 
-### Plot the regressions
-plot(logv, lm.loglin$fitted.values, type="l",xlim=c(-2,5), ylim=c(-3,3.5))
-lines(logv, lm.loglin$fitted.values, col="red")
-lines(logv, log(lm.lin$fitted.values), col="blue")
-lines(logv, log(lm.quad$fitted.values), col="green")
-lines(logv, log(lm.cub$fitted.values), col="orange")
+gkern.log = glkerns(
+	log(v), log(pland), 
+	deriv=0,
+	n.out=300, 
+	hetero=TRUE
+)
 
-regs = data.frame("Log-Linear"=lm.loglin$fitted.values, "Linear"=log(lm.lin$fitted.values),"Quadratic"=log(lm.quad$fitted.values),
-			"Cubic"=log(lm.cub$fitted.values), "Log Kernel"=ks.log.fitted$y)
+gkern.log.interp = interpSpline(
+	gkern.log$x.out, gkern.log$est,
+	na.action=na.omit,
+	bSpline=TRUE
+)
 
-matplot(cbind(logv,logv,logv,logv,logv), regs, col=1:ncol(regs), lty=1:ncol(regs),lwd=c(2,2,2,2), type="l", 
-	  main="Fitted Regressions for r(v)", xlab="v", ylab="p_l", xlim=c(-2,5), ylim=c(-3,3.5))
-legend(3.3, -0.5, names(regs), col=1:ncol(regs), lty=1:ncol(regs))
+gkern.log.fitted = predict(
+	gkern.log.interp, log(v)
+)
+
+regs = data.frame(
+	"Log-Linear"=lm.loglin$fitted.values, 
+	"Linear"=log(lm.lin$fitted.values),
+	"Quadratic"=log(lm.quad$fitted.values),
+	"Cubic"=log(lm.cub$fitted.values), 
+	"Log Kernel"=gkern.log.fitted$y
+)
+
 
 #######################################################
 ### Derive supply functions for each
@@ -202,12 +185,12 @@ vseq = seq(1,100,length.out=vseq.n)
 
 ### Calculate supply functions for quad and cubic cases
 r = lm.quad$coefficients
-p.quad = (vseq^r[1])*exp(2*r[2]*(vseq-1))
+p.quad = (vseq^r[1]) * exp(2*r[2]*(vseq-1))
 s.quad = vseq/p.quad
 
 r = lm.cub$coefficients
 c = 2*r[2] + 1.5*r[3]
-p.cub = (vseq^r[1])*exp(2*r[2]*(vseq-1) + 1.5*r[3]*(vseq^2 - 1))
+p.cub = (vseq^r[1]) * exp(2*r[2]*(vseq-1) + 1.5* r[3] * (vseq^2 - 1))
 s.cub = vseq/p.cub
 
 # Now create price grid given this upperbound
@@ -217,9 +200,12 @@ pgrid = seq(lb,ub,length.out=vseq.n)
 
 
 ### Calculate supply functions for linear and log-linear case s
-
-alpha = as.numeric(exp(lm.loglin$coefficients[1])*lm.loglin$coefficients[2])
-beta = as.numeric(lm.loglin$coefficients[2] - 1)
+alpha = as.numeric(
+	exp(lm.loglin$coefficients[1]) * lm.loglin$coefficients[2]
+)
+beta = as.numeric(
+	lm.loglin$coefficients[2] - 1
+)
 
 # Determine upper bound on p, since beta < 0 implies (c+log(p)) < 0
 ec = exp(-alpha/beta)
@@ -233,81 +219,56 @@ s.loglin = (1/pgrid)*((1 + (beta/alpha)*log(pgrid))^(1/beta))
 
 ### Solve ODE for kernel supply function
 
-rprime = interpSpline(gkern.deriv$x.out,gkern.deriv$est,na.action=na.omit,bSpline=TRUE)
-calc.supply.deriv = function(t,y, params) list((y/t)*((1/(predict(rprime,y*t))$y)-1))
+rprime = interpSpline(
+	gkern.deriv$x.out, gkern.deriv$est, 
+	na.action=na.omit,
+	bSpline=TRUE
+)
+
+calc.supply.deriv = function(t, y, params) {
+	return(list((y/t)*((1/(predict(rprime, y*t))$y)-1)))
+}
 
 xstart = c(1)
-pgrid.kern = c(1, seq(1.001,ub,length.out=vseq.n-1))
+pgrid.kern = c(1, seq(1.001, ub, length.out=vseq.n-1))
 
-ode.out = lsoda(xstart, pgrid.kern, calc.supply.deriv, parms=1, rtol=1e-5, atol=1e-7)
-s.kern = data.frame(s=ode.out[,2],p=ode.out[,1])
+ode.out = lsoda(
+	xstart, pgrid.kern, calc.supply.deriv, 
+	parms=1, 
+	rtol=1e-5, 
+	atol=1e-7
+)
 
-### Plot all the supply functions
+s.kern = data.frame(s=ode.out[ , 2], p=ode.out[ , 1])
 
-s.funcs = data.frame("Log-Linear"=s.loglin,"Linear"=s.lin,"Quadratic"=s.quad,
-				"Cubic"=s.cub, "Kernel"=s.kern$s)
-p.grids = cbind(pgrid,pgrid,p.quad,p.cub,s.kern$p)
+s.funcs = data.frame(
+	"Log-Linear"=s.loglin,
+	"Linear"=s.lin,
+	"Quadratic"=s.quad,
+	"Cubic"=s.cub, 
+	"Kernel"=s.kern$s
+)
 
-s.lin.range = range(s.lin*pgrid)
-s.loglin.range = range(s.loglin*pgrid)
-s.quad.range = range(s.quad*p.quad)
-s.cub.range = range(s.cub*p.cub)
-s.kern.range = range(s.kern$s*s.kern$p)
-
-matplot(s.funcs,p.grids,col=1:ncol(s.funcs), lty=1:ncol(s.funcs),lwd=c(2,2,2,2), type="l", 
-	  main="Supply Functions", xlab="Supply", ylab="Price",xlim=c(0,39))
-legend(30, 1.5, names(s.funcs), col=1:ncol(s.funcs), lty=1:ncol(s.funcs))
-
-
-#######################################################
-### Special cases
-#######################################################
-
-### Log-linear
-r.ll.iv = c(-1.61289,0.91191)
-
-calc.loglin.supply = function(grid, r){
-	a = as.numeric(exp(r[1])*r[2])
-	b = as.numeric(r[2] - 1)
-	ec = exp(-a/b)
-	if(ec < max(grid)){
-		warning("Upper bound on price grid exceeds allowed price bound")
-	}
-	return((1/grid)*((1 + (b/a)*log(grid))^(1/b)))
-}
-
-s.ll.iv = calc.loglin.supply(pgrid,r.ll.iv)
-s.alt.funcs = data.frame("Regular"=s.loglin,"Kernel"=s.kern$s,"IV"=s.ll.iv)
-pgrids = cbind(pgrid,s.kern$p,pgrid)
-
-plot.with.legend(s.alt.funcs, pgrids, titles=names(s.alt.funcs),
-		main="Alternative Supply Functions for log-linear r(v)",
-		lposx=30, lposy=1.2,xlim=c(0,40),ylim=c(1,2.1))
-
-plot(s.ll.iv,pgrid,type="l",xlim=c(0,39))
-lines(s.loglin,pgrid,col="red")
-lines(s.kern$s,s.kern$p,col="blue")
-
-
-### Cubic
-
-r.cub.iv = c(0.2363,-0.000765,-0.00000767)
-
-calc.cubic.supply = function(vgrid,r){
-	p = (vgrid*r[1])*exp(2*r[2]*(vgrid-1) + 1.5*r[3]*(vgrid^2 - 1))
-	s = vgrid/p
-	return(data.frame(p=p,s=s))
-}
-
-s.cub.iv = calc.cubic.supply(vseq,r.cub.iv)
-
-s.alt.funcs = data.frame("Regular"=s.cub, "Small V"=s.cub.smallv$s,
-				 "Single-Family"=s.cub.sf$s, "Post95"=s.cub.post95$s,
-				 "SF-Post95"=s.cub.postsf$s,"IV"=s.cub.iv$s)
-pgrids = cbind(p.cub,s.cub.smallv$p,s.cub.sf$p,s.cub.post95$p,s.cub.postsf$p, s.cub.iv$p)
-
-plot.with.legend(s.alt.funcs, pgrids, titles=names(s.alt.funcs),main="Alternative Supply Functions for Cubic(v)",
-			lposx=28, lposy=1.3,xlim=c(0,40),ylim=c(1,2.4))
+png(filename="supply.png", height=350, width=600)
+op <- par(family = "serif")
+plot(
+	log(s.funcs$Log.Linear), log(pgrid),
+	type="l",
+	bty="n",
+	xlab="log(Supply)",
+	ylab="log(Price)",
+	family="serif"
+)
+lines(log(s.funcs$Kernel), log(pgrid), lty=3)
+lines(log(s.funcs$Linear), log(pgrid), lty=2)
+legend(
+	"topleft",
+	c("log-linear", "linear", "kernel"), 
+	lty=1:3,
+	bty="n"
+)
+par(op)
+dev.off()
 
 
 #######################################################
@@ -342,6 +303,27 @@ m.grids = cbind(m.loglin, m.lin, m.quad, m.cub,m.kernel)
 matplot(m.grids,prod.funcs, col=1:ncol(prod.funcs), lty=1:ncol(prod.funcs),lwd=c(2,2,2,2), type="l", 
 	  main="Production Functions", xlab="m = (M/L)", ylab="Output", xlim=c(0,80), ylim=c(0,42))
 legend(60, 12, names(prod.funcs), col=1:ncol(prod.funcs), lty=1:ncol(prod.funcs))
+
+png(filename="production.png", height=350, width=600)
+op <- par(family = "serif")
+plot(
+	log(prod.funcs$Log.Linear), log(m.lin),
+	type="l",
+	bty="n",
+	xlab="log(m)",
+	ylab="log(q)",
+	family="serif"
+)
+lines(log(prod.funcs$Kernel), log(m.lin), lty=3)
+lines(log(prod.funcs$Linear), log(m.lin), lty=2)
+legend(
+	"topleft",
+	c("log-linear", "linear", "kernel"), 
+	lty=1:3,
+	bty="n"
+)
+par(op)
+dev.off()
 
 
 #######################################################
