@@ -13,30 +13,124 @@ library(MASS)
 library(splines)
 library(odesolve)
 library(lokern)
+library(xtable)
+library(stargazer)
 
 #######################################################
 ### Read in the data
 #######################################################
 
-# Just pland, v, and lotarea
-data = read.csv("qryGetPropertiesLandValueRegressions_post1995.txt", header=TRUE)
-N = dim(data)[1]
+residential = read.csv("Pittsburgh_post1995.csv", header=TRUE)
+residential.N = nrow(residential)
 
-v = data$v
-pland = data$pland
-lotarea = data$lotarea
-muni = data$muni
-tcog = data$tcog
+commercial = read.csv("Pittsburgh_Commercial_Properties.tsv", header=TRUE, sep="\t")
+commercial.N = nrow(commercial)
 
-sorted = sort(v,index.return=TRUE, method="quick")
-pland = pland[sorted$ix]
-lotarea = lotarea[sorted$ix]
-muni = muni[sorted$ix]
-tcog = tcog[sorted$ix]
-v = sorted$x
+###################
+## SUMMARY TABLE ##
+###################
 
-v.full = v
-pland.full = pland
+.summary <- function (names, resid=TRUE) {
+	# Returns the summary table in LaTeX
+	if (resid==TRUE) {
+		data <- residential
+	} else {
+		data <- commercial
+	}
+
+	df <- data.frame()
+
+	for (name in names) {
+		x <- data[[name]]
+		d <- data.frame(
+			"Mean"   = mean(x),
+			"Median" = median(x),
+			"SD"     = sd(x),
+			"Min."   = min(x),
+			"Max."   = max(x)
+		)
+		df <- rbind(df, d)
+	}
+	row.names(df) <- names
+	return(xtable(df))
+}
+
+print.xtable(
+	.summary(c("v", "pland", "lotarea", "tcog")),
+	file="residential.tex"
+)
+
+print.xtable(
+	.summary(c("v", "pland", "lotarea"), resid=FALSE),
+	file="commercial.tex"
+)
+
+#############
+## FIGURES ##
+#############
+
+attach(residential)
+
+# Scatter plot that appeared in the original code but not in the published
+# article
+png(filename="scatter.png", height=350, width=600)
+res <- lm(log(pland) ~ log(v))
+plot(
+	log(v), log(pland), 
+	pch=20, cex=0.5,
+	col=rgb(0, 0, 0, alpha=0.11),
+	xlab="log(housing value per unit land)",
+	ylab="log(land prices)",
+	bty="n", 
+	family="serif"
+
+)
+abline(res, col=rgb(0, 0, 1, alpha=0.5))
+dev.off()
+
+
+png(filename="density.png", height=350, width=600)
+par(mfrow=c(1,2))
+plot(
+	density(v),
+	main="",
+	xlim=c(0,80),
+	ylab="Density",
+	xlab="housing value per unit land",
+	bty="n",
+	family="serif"
+)
+plot(
+	density(pland),
+	main="",
+	xlim=c(0,20),
+	ylab="Density",
+	xlab="land prices",
+	bty="n",
+	family="serif"
+)
+dev.off()
+
+# v.core <- v[v < 65.9924 & v > 0.9282]
+
+############################
+## OLS REGRESSION RESULTS ##
+############################
+
+lm.loglin = lm(log(pland) ~ log(v))
+lm.lin = lm(pland ~ v - 1)
+lm.quad = lm(pland ~ v + I(v^2) - 1)
+lm.cub = lm(pland ~ v + I(v^2) + I(v^3) - 1)
+
+stargazer(
+	lm.loglin, lm.lin, lm.quad, lm.cub, 
+	title="Regression Results", align=TRUE,
+	omit.stat=c("LL","ser","f")
+)
+
+detach(residential)
+
+
 
 goodv = (((v.full < 65.9924)*(v > 0.9282)) == 1)
 v = v.full[goodv]
@@ -54,7 +148,6 @@ v4 = v^4
 v.sd = sqrt(var(v))
 logv.sd = sqrt(var(logv))
 
-remove(data)
 
 plot(logv, logpland, main="Value per Unit Land vs. Land Value per Unit Land\nBaltimore City Residential Properties", 
 			xlab="log(v)", ylab="log(pland)") #,xlim=c(-2,5), ylim=c(-3,3.5))

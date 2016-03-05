@@ -17,58 +17,33 @@ source("HNIP_estimator.R")
 INST.HAS.CONSTANT = TRUE
 BASE.EQ.CONSTANT = FALSE
 
-#### (1) Read in the raw data
+data = read.csv("Pittsburgh_post1995.csv", header=TRUE)
+N = nrow(data)
 
-# Just pland, v, and lotarea
-data = read.table("Pittsburgh_post1995.txt", header=T, sep="\t")
+attach(data)
 
-N = dim(data)[1]
+hnip.estimates <- function(K) {
 
-#### (2) Clean up the data by removing outliers. Consistent with file 'supply.R'
-v = data$v
-pland = data$pland
-lotarea = data$lotarea
-muni = data$muni
-tcog = data$tcog
+	p.cont = K+1  ### dimensions of the instruments
+	p.dummy = length(unique(muni)) - 1   ##
+	P = p.cont + p.dummy  #### Dimension of the instruments
 
-## Maybe don't do this, to be consistent with results in main paper already
-sorted = sort(v,index.return=TRUE, method="quick")
-pland = pland[sorted$ix]
-lotarea = lotarea[sorted$ix]
-muni = muni[sorted$ix]
-tcog = tcog[sorted$ix]  ## the INSTRUMENT: Travel time to city center, in minutes
-v = sorted$x
+	### Create design matrix of dummy variables based on municipalities
+	Q.d = factor(muni)
+	Q.df = model.matrix(~ Q.d - 1)
 
-v.full = v
-pland.full = pland
+	### Estimate with the dummies as IVs
+	beta.est = HNP.estimator(
+		K, p.cont, tcog,
+		(as.matrix(Q.df))[,2:(p.dummy+1)], 
+		v, pland
+	)
 
-goodv = (((v.full < 144.4682981)*(v > 0.923818)) == 1)  ### 185 and 0.30
-v = v.full[goodv]
-pland = pland.full[goodv]
-lotarea = lotarea[goodv]
-muni = muni[goodv]
-tcog = tcog[goodv]
-N = length(v)  ## New data size after stripping away some observations
+	return(beta.est)
+}
 
-### For real data
-#q = tcog
-#x = v
-#y = pland
-
-K = 3  #### Order of the polynomial to use
-p.cont = K+1  ### dimensions of the instruments
-p.dummy = length(unique(muni)) - 1   ##
-P = p.cont + p.dummy  #### Dimension of the instruments
-
-### Create design matrix of dummy variables based on municipalities
-Q.d = factor(muni)
-Q.df = model.matrix(~ Q.d - 1)
-
-### Estimate with the dummies as IVs
-beta.hat.3 = HNP.estimator(K,p.cont,tcog,(as.matrix(Q.df))[,2:(p.dummy+1)],v,pland)
-
-### Estimate without the dummy variables as IVs
-# beta.hat = HNP.estimator(K,p.cont,tcog, matrix(1,1,1),v,pland)
+print(hnip.estimates(2))
+print(hnip.estimates(3))
 
 #############################################
 ### Bootstrap for standard errors
@@ -90,8 +65,11 @@ for(b in 1:B){
 	Q.d.b = factor(muni.b)
 	Q.df.b = model.matrix(~ Q.d.b - 1)
 
-	beta.hat[b,] = HNP.estimator(K,p.cont,tcog.b,(as.matrix(Q.df.b))[,2:(p.dummy+1)],v.b,pland.b)
-	# beta.hat[b,] = HNP.estimator(K,p.cont,tcog.b, matrix(1,1,1),v.b,pland.b)
+	beta.hat[b,] = HNP.estimator(
+		K, p.cont, tcog.b,
+		(as.matrix(Q.df.b))[,2:(p.dummy+1)],
+		v.b, pland.b
+	)
 
 	if(b %% 50 == 0){
 		print(paste("b = ", b)) ## print iterations
@@ -105,7 +83,7 @@ plot(density(beta.hat[,2]), main="Coefficient for V^2")
 plot(density(beta.hat[,3]), main="Coefficient for V^3")
 
 round(est, digits=6)
-
+detach(data)
 
 
 
